@@ -83,8 +83,6 @@ class Command(BaseCommand):
                 queryset = queryset.filter(owner_id=options['user_id'])
 
             for entity in queryset:  # разрешённые к показу модератором и не скрытые по таймауту
-                if not to_email and entity.owner.profile.block_notifications:
-                    continue
                 if entity.last_reminder_sent:
                     last_change_or_remind_time = max(entity.created, entity.last_reminder_sent)
                 else:
@@ -94,14 +92,15 @@ class Command(BaseCommand):
                     print 'Hiding for %r' % entity
                     if not fake:
                         entity.hidden_by_timeout = True
-                        entity.last_reminder_sent = django.utils.timezone.now()
+                        if entity.owner.profile.block_notifications:
+                            entity.last_reminder_sent = django.utils.timezone.now()
+                            reminds_hide.append(entity)
                         if not no_update:
                             entity.save()
-                        reminds_hide.append(entity)
                         email_owner_hide = entity.owner
 
                 elif last_change_or_remind_time.replace(tzinfo=None) + settings.REMIND_AFTER < now:
-                    if not to_email and not entity.owner.profile.reminder_on:
+                    if not entity.owner.profile.reminder_on:
                         continue
                     print 'Sending reminder for %r' % entity
                     if not fake:
@@ -110,7 +109,8 @@ class Command(BaseCommand):
                             entity.save()
                         reminds.append(entity)
                         email_owner = entity.owner
-            if reminds:
+
+            if reminds and (to_email or email_owner):
                 send_remind_email(reminds, site, email_template_remind, email_owner, to_email)
-            if reminds_hide:
+            if reminds_hide and (to_email or email_owner_hide):
                 send_remind_email(reminds_hide, site, email_template_hidden, email_owner_hide, to_email)
